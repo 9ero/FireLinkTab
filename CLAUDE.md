@@ -8,12 +8,19 @@ The user visits `https://<firetv-ip>:8443`, accepts the self-signed cert warning
 
 Companion project: `../firecast` (WebRTC approach that requires a browser extension for discovery).
 
-## Status — WORKING on desktop
-- ✅ Tested on 2 PCs with Chrome/Brave
+## Status — WORKING on desktop browsers
+- ✅ Confirmed: Chrome, Brave, Edge (desktop)
+- ✅ Expected to work: Firefox, Safari (desktop) — not yet tested
 - ✅ WebRTC stream renders on Fire TV
 - ✅ Auto-returns to idle state when stream stops
-- ❌ Mobile browsers: `getDisplayMedia()` is a desktop-only API — not fixable
+- ❌ Mobile browsers (any): `getDisplayMedia()` is a W3C desktop-only API — not fixable at app level
 - ❌ Cast v2 auth: device appears in Cast dialog but greyed out (Google CA wall)
+
+## Browser compatibility rationale
+FireLinkTab deliberately avoids referencing Chrome in its name. `getDisplayMedia` is
+supported by all major desktop browsers (Chrome, Brave, Edge, Firefox, Safari).
+The controller page detects mobile user agents and shows a specific error rather
+than the generic cert warning.
 
 ## Architecture — six servers
 

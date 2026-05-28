@@ -177,38 +177,51 @@ class ControllerServer(private val port: Int = 8443) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FireCast — Transmitir</title>
+<title>FireLinkTab</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0f0f0f;color:#f1f1f1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-     display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:20px;padding:24px}
-h1{font-size:2rem;font-weight:700;color:#ff4444}
-.card{background:#1e1e1e;border-radius:12px;padding:24px;max-width:480px;width:100%;text-align:center}
-.warn{background:#2a1a00;border:1px solid #ff8800;border-radius:8px;padding:14px;font-size:.85rem;
-      color:#ffb347;margin-bottom:16px;text-align:left;line-height:1.6}
-button{background:#e53935;color:#fff;border:none;padding:14px 28px;border-radius:8px;
-       font-size:1rem;font-weight:600;cursor:pointer;width:100%;transition:.2s}
-button:hover:not(:disabled){background:#c62828}
-button:disabled{background:#444;cursor:not-allowed}
-#status{margin-top:12px;font-size:.9rem;color:#aaa;min-height:20px}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+body{background:#0a0a0a;color:#f1f1f1;
+     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+     display:flex;flex-direction:column;align-items:center;justify-content:center;
+     min-height:100vh;gap:0;padding:24px}
+h1{font-size:clamp(2.4rem,6vw,3.8rem);font-weight:800;letter-spacing:-.5px;
+   background:linear-gradient(90deg,#ff2d2d 0%,#ff6b00 50%,#ff9500 100%);
+   -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+   background-clip:text;line-height:1.1}
+.tagline{font-size:.9rem;color:#444;letter-spacing:.12em;text-transform:uppercase;
+         margin-top:6px;margin-bottom:40px;font-weight:400}
+.card{background:#161616;border:1px solid #2a2a2a;border-radius:14px;
+      padding:28px 32px;max-width:440px;width:100%;text-align:center}
+.warn{border-radius:8px;padding:14px 16px;font-size:.85rem;
+      margin-bottom:18px;text-align:left;line-height:1.65}
+.warn-cert{background:#1e1400;border:1px solid #6b4a00;color:#cc8800}
+.warn-mobile{background:#150d1f;border:1px solid #6a1fb0;color:#a76dd6}
+.warn code{font-size:.8rem;opacity:.85}
+button{background:linear-gradient(135deg,#e53935,#d84315);color:#fff;border:none;
+       padding:14px 28px;border-radius:8px;font-size:1rem;font-weight:600;
+       cursor:pointer;width:100%;transition:.15s;letter-spacing:.01em}
+button:hover:not(:disabled){filter:brightness(1.12)}
+button:disabled{background:#222;color:#555;cursor:not-allowed}
+#status{margin-top:14px;font-size:.85rem;color:#555;min-height:18px}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle}
 .green{background:#4caf50}.red{background:#f44336}.yellow{background:#ff9800}
 </style>
 </head>
 <body>
-<h1>&#128308; FireCast</h1>
+<h1>FireLinkTab</h1>
+<p class="tagline">Tab casting para Fire TV</p>
 <div class="card">
-  <div class="warn" id="warn-cert" style="display:none">
-    <b>&#9888; getDisplayMedia no disponible</b><br><br>
-    Acepta el certificado de esta página: haz clic en <b>Avanzado &rarr; Acceder al sitio</b>
-    y luego recarga.
+  <div class="warn warn-cert" id="warn-cert" style="display:none">
+    <b>&#9888; Certificado no aceptado</b><br><br>
+    Haz clic en <b>Avanzado &rarr; Acceder al sitio</b> en el aviso de seguridad
+    del navegador y luego recarga esta página.
   </div>
-  <div class="warn" id="warn-mobile" style="display:none;background:#1a0d2a;border-color:#9c27b0">
+  <div class="warn warn-mobile" id="warn-mobile" style="display:none">
     <b>&#128245; Navegador móvil detectado</b><br><br>
-    <code>getDisplayMedia</code> no está disponible en navegadores móviles.<br>
-    Abre esta misma URL desde <b>Chrome o Brave en tu computadora</b>.
+    <code>getDisplayMedia</code> no está disponible en móviles.<br>
+    Abre esta URL desde <b>Chrome, Brave, Edge, Firefox o Safari en tu computadora</b>.
   </div>
-  <button id="btn" onclick="startCast()">&#128250; Compartir pantalla</button>
+  <button id="btn" onclick="startCast()">&#9654; Compartir pantalla</button>
   <p id="status"></p>
 </div>
 

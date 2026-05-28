@@ -4,8 +4,19 @@ App Android que convierte un **Fire TV / Android TV** en un receptor de pantalla
 
 **FireLinkTab** = *Fire* (TV + suena a *free*) + *Link* (enlace directo) + *Tab* (tab casting, comparte letras con *cast*)
 
-> **Estado:** ✅ Funcional en Chrome/Brave de escritorio (Windows, macOS, Linux).
-> ❌ Navegadores móviles no soportados (`getDisplayMedia` es API de escritorio).
+## Compatibilidad
+
+| Navegador | Escritorio | Móvil |
+|---|---|---|
+| Chrome | ✅ | ❌ |
+| Brave | ✅ | ❌ |
+| Edge | ✅ | ❌ |
+| Firefox | 🔲 sin probar | ❌ |
+| Safari | 🔲 sin probar | ❌ |
+
+> **¿Por qué no funciona en móvil?** `getDisplayMedia()` es una API exclusiva de navegadores de escritorio. No es una limitación de FireLinkTab — ninguna app puede capturar pantalla desde el navegador en iOS o Android.
+>
+> El nombre **FireLinkTab** no referencia Chrome deliberadamente: funciona en cualquier navegador de escritorio que soporte `getDisplayMedia`.
 
 ---
 
@@ -32,7 +43,7 @@ El dispositivo también se anuncia como receptor Cast en la red local (mDNS + SS
 
 ### Requisitos
 - Fire TV / Android TV en la misma red WiFi que el ordenador
-- Chrome o Brave en escritorio (Windows, macOS, Linux)
+- Cualquier navegador de escritorio con soporte `getDisplayMedia`: Chrome, Brave, Edge, Firefox o Safari
 
 ### 1 — Instalar la app en el Fire TV
 
@@ -148,7 +159,7 @@ La `MainActivity` actúa como puente entre el `SignalingServer` (WS) y el `Contr
 ## Limitaciones conocidas
 
 ### Navegadores móviles
-`getDisplayMedia()` no está disponible en Chrome para Android, Safari Mobile ni ningún navegador móvil. Es una restricción de la API del navegador, no de esta app.
+`getDisplayMedia()` no está disponible en ningún navegador móvil (Chrome Android, Safari iOS, Firefox Android…). Es una restricción de la especificación W3C, no de esta app. La página muestra un aviso específico cuando detecta un dispositivo móvil.
 
 ### Advertencia de certificado
 El certificado TLS es autofirmado y generado en tiempo de ejecución. Chrome muestra una advertencia la primera vez. Esto es esperable — el certificado protege la conexión pero no está firmado por una CA pública.
