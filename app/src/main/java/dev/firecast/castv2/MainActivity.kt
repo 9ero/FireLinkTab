@@ -34,9 +34,18 @@ class MainActivity : AppCompatActivity() {
     private val dialServer       = lazy { DialServer(8008, deviceId, friendlyName) }
     private val castServer       = lazy { CastV2Server(9009) }
     private val ssdpServer       = lazy { SsdpServer(this, deviceId, DialServer.getLocalIp(), 8008) }
-    private val webServer        = lazy { WebServer(8080) }
-    private val signalingServer  = lazy { SignalingServer(8081) }
-    private val controllerServer = lazy { ControllerServer(8443) }
+    private val webServer       = lazy { WebServer(8080) }
+    private val signalingServer = lazy { SignalingServer(8081) }
+    private val certFile  by lazy { java.io.File(CertUtils.certDir(this), "cert.pem") }
+    private val keyFile   by lazy { java.io.File(CertUtils.certDir(this), "key.pem") }
+    private val hasMkcert by lazy { certFile.exists() && keyFile.exists() }
+
+    private val controllerServer by lazy {
+        ControllerServer(8443,
+            certFile = if (hasMkcert) certFile else null,
+            keyFile  = if (hasMkcert) keyFile  else null,
+        )
+    }
 
     @Volatile private var receiverConnected  = false
     @Volatile private var controllerConnected = false
@@ -44,6 +53,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        CertUtils.init(this)   // load or generate persistent self-signed cert
         setContentView(R.layout.activity_main)
 
         statusContainer = findViewById(R.id.status_container)
@@ -54,6 +64,12 @@ class MainActivity : AppCompatActivity() {
 
         val localIp = DialServer.getLocalIp()
         urlText.text = "https://$localIp:8443"
+
+        if (hasMkcert) {
+            // Cert verified by mkcert — no browser warning
+            statusReceiver.text = "🔒 Certificado mkcert — sin advertencias"
+            statusReceiver.setTextColor(READY_COLOR)
+        }
 
         // Apply red→orange gradient to title after layout pass
         titleView.viewTreeObserver.addOnGlobalLayoutListener {
@@ -112,7 +128,7 @@ class MainActivity : AppCompatActivity() {
         signalingServer.value.apply {
             onConnected = {
                 receiverConnected = true
-                if (controllerConnected) controllerServer.value.sendToController(READY)
+                if (controllerConnected) controllerServer.sendToController(READY)
                 ui { statusReceiver.text = "● listo"; statusReceiver.setTextColor(READY_COLOR) }
                 android.util.Log.i("Relay", "Receiver connected")
             }
@@ -120,12 +136,12 @@ class MainActivity : AppCompatActivity() {
                 receiverConnected = false
                 ui { statusReceiver.text = "● reconectando…"; statusReceiver.setTextColor(DIM_COLOR) }
             }
-            onMessage = { msg -> controllerServer.value.sendToController(msg) }
+            onMessage = { msg -> controllerServer.sendToController(msg) }
             start()
         }
 
         // ── Controller server (HTTPS + WSS) ───────────────────────
-        controllerServer.value.apply {
+        controllerServer.apply {
             onConnected = {
                 controllerConnected = true
                 if (receiverConnected) sendToController(READY)
@@ -194,7 +210,7 @@ class MainActivity : AppCompatActivity() {
         runCatching { ssdpServer.value.stop() }
         runCatching { webServer.value.stop() }
         signalingServer.value.stop()
-        controllerServer.value.stop()
+        controllerServer.stop()
     }
 
     private fun ui(block: () -> Unit) = runOnUiThread(block)

@@ -16,7 +16,11 @@ import kotlin.concurrent.thread
 //
 // Using the same port for HTTPS and WSS means Chrome's one-time cert exception
 // (clicking "Proceed anyway") covers both the page load and the WebSocket connection.
-class ControllerServer(private val port: Int = 8443) {
+class ControllerServer(
+    private val port: Int = 8443,
+    private val certFile: java.io.File? = null,
+    private val keyFile: java.io.File? = null,
+) {
 
     private var running = false
 
@@ -39,7 +43,7 @@ class ControllerServer(private val port: Int = 8443) {
         running = true
         thread(name = "ControllerServer") {
             try {
-                val ss = CertUtils.createHttpsServerSocket(port)
+                val ss = CertUtils.createHttpsServerSocket(port, certFile, keyFile)
                 Log.i(TAG, "Protocols: ${ss.enabledProtocols.joinToString()}")
                 Log.i(TAG, "Controller server (HTTPS+WSS) on :$port")
                 while (running) {

@@ -56,7 +56,37 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 Lanza la app desde el launcher del Fire TV. La pantalla mostrará la IP y los servicios activos.
 
-### 2 — Primera visita desde Chrome (aceptar certificado)
+### 2 — (Opcional) Eliminar el aviso de certificado con mkcert
+
+Por defecto la app usa un certificado autofirmado — el navegador muestra una advertencia de seguridad la primera vez. Con **mkcert** se elimina completamente:
+
+**En tu computadora** (una sola vez por navegador):
+```bash
+# Instalar mkcert
+brew install mkcert        # macOS
+choco install mkcert       # Windows
+apt install mkcert         # Linux (o descarga desde github.com/FiloSottile/mkcert)
+
+mkcert -install            # instala la CA raíz en el navegador
+mkcert 192.168.50.12       # genera cert para la IP del Fire TV
+# genera: 192.168.50.12.pem  y  192.168.50.12-key.pem
+```
+
+**Copiar al Fire TV** (con ADB):
+```bash
+CERT_DIR="/sdcard/Android/data/dev.firecast.castv2/files"
+adb push 192.168.50.12.pem     $CERT_DIR/cert.pem
+adb push 192.168.50.12-key.pem $CERT_DIR/key.pem
+```
+
+Reinicia la app — la pantalla del Fire TV mostrará `🔒 Certificado mkcert — sin advertencias`.
+
+> Si la IP del Fire TV cambia (DHCP), repite `mkcert <nueva-ip>` y el `adb push`.
+> Para evitarlo, configura una reserva DHCP estática en tu router.
+
+---
+
+### 3 — Primera visita desde Chrome (aceptar certificado)
 
 Abre Chrome o Brave y ve a:
 ```
