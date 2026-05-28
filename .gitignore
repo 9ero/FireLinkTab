@@ -1,0 +1,18 @@
+# Android build
+.gradle/
+build/
+app/build/
+local.properties
+.idea/
+**/*.iml
+captures/
+.cxx/
+
+# Session logs
+media_router_internals_*.json
+
+# General
+.DS_Store
+*.swp
+*.swo
+Thumbs.db
