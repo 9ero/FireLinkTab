@@ -198,20 +198,30 @@ button:disabled{background:#444;cursor:not-allowed}
 <body>
 <h1>&#128308; FireCast</h1>
 <div class="card">
-  <div class="warn" id="warn" style="display:none">
+  <div class="warn" id="warn-cert" style="display:none">
     <b>&#9888; getDisplayMedia no disponible</b><br><br>
-    Acepta el certificado de esta página (haz clic en <b>Avanzado &rarr; Acceder al sitio</b>)
+    Acepta el certificado de esta página: haz clic en <b>Avanzado &rarr; Acceder al sitio</b>
     y luego recarga.
+  </div>
+  <div class="warn" id="warn-mobile" style="display:none;background:#1a0d2a;border-color:#9c27b0">
+    <b>&#128245; Navegador móvil detectado</b><br><br>
+    <code>getDisplayMedia</code> no está disponible en navegadores móviles.<br>
+    Abre esta misma URL desde <b>Chrome o Brave en tu computadora</b>.
   </div>
   <button id="btn" onclick="startCast()">&#128250; Compartir pantalla</button>
   <p id="status"></p>
 </div>
 
 <script>
-if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-  document.getElementById('warn').style.display = 'block';
+const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+if (isMobile) {
+  document.getElementById('warn-mobile').style.display = 'block';
   document.getElementById('btn').disabled = true;
-  document.getElementById('status').textContent = 'Acepta el certificado y recarga.';
+  document.getElementById('status').textContent = 'Usa Chrome o Brave en tu computadora.';
+} else if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+  document.getElementById('warn-cert').style.display = 'block';
+  document.getElementById('btn').disabled = true;
+  document.getElementById('status').textContent = 'Acepta el certificado y recarga la página.';
 }
 
 let pc, ws, stream;
