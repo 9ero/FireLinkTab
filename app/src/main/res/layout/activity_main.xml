@@ -3,66 +3,112 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
+    android:background="#0A0A0A">
 
-    <!-- Status UI: visible when idle -->
+    <!-- ── Idle screen ─────────────────────────────────────────── -->
     <LinearLayout
         android:id="@+id/status_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
         android:gravity="center"
-        android:padding="32dp">
+        android:paddingStart="80dp"
+        android:paddingEnd="80dp"
+        android:paddingTop="40dp"
+        android:paddingBottom="40dp">
 
+        <!-- Title with gradient applied in code -->
         <TextView
             android:id="@+id/title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="FireLinkTab"
-            android:textColor="#FF6B6B"
-            android:textSize="28sp"
+            android:textSize="58sp"
             android:textStyle="bold"
-            android:layout_marginBottom="24dp"/>
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.03"
+            android:textColor="#FF4500"/>
 
+        <!-- Tagline -->
         <TextView
-            android:id="@+id/status_mdns"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="● mDNS: iniciando..."
-            android:textColor="#888888"
-            android:textSize="16sp"
-            android:layout_marginBottom="8dp"/>
-
-        <TextView
-            android:id="@+id/status_dial"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="● DIAL: iniciando..."
-            android:textColor="#888888"
-            android:textSize="16sp"
-            android:layout_marginBottom="8dp"/>
-
-        <TextView
-            android:id="@+id/status_cast"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="● Cast v2: iniciando..."
-            android:textColor="#888888"
-            android:textSize="16sp"
-            android:layout_marginBottom="32dp"/>
-
-        <TextView
-            android:id="@+id/hint"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Busca este dispositivo en el menú Cast de Chrome/Brave"
+            android:text="Tab casting para Fire TV"
             android:textColor="#555555"
+            android:textSize="15sp"
+            android:fontFamily="sans-serif-light"
+            android:letterSpacing="0.08"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="48dp"/>
+
+        <!-- URL card -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/url_card_bg"
+            android:paddingStart="36dp"
+            android:paddingEnd="36dp"
+            android:paddingTop="24dp"
+            android:paddingBottom="24dp"
+            android:gravity="center">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Abre en Chrome o Brave desde tu computadora"
+                android:textColor="#555555"
+                android:textSize="13sp"
+                android:fontFamily="sans-serif-light"
+                android:letterSpacing="0.05"
+                android:layout_marginBottom="10dp"/>
+
+            <TextView
+                android:id="@+id/url_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="https://—.—.—.—:8443"
+                android:textSize="30sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:textColor="#FF8C00"/>
+
+        </LinearLayout>
+
+        <!-- Cert warning -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⚠  Primera vez: acepta el aviso de certificado → Avanzado → Continuar"
+            android:textColor="#7A5500"
             android:textSize="13sp"
-            android:gravity="center"/>
+            android:fontFamily="sans-serif-light"
+            android:layout_marginTop="28dp"/>
+
+        <!-- Mobile note -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="💻  Solo funciona desde navegadores de escritorio (Windows · macOS · Linux)"
+            android:textColor="#3A3A3A"
+            android:textSize="13sp"
+            android:fontFamily="sans-serif-light"
+            android:layout_marginTop="8dp"/>
+
+        <!-- Receiver status dot -->
+        <TextView
+            android:id="@+id/status_receiver"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="● preparando…"
+            android:textColor="#333333"
+            android:textSize="12sp"
+            android:fontFamily="sans-serif-light"
+            android:layout_marginTop="36dp"/>
 
     </LinearLayout>
 
-    <!-- WebView: shown when an app is launched via DIAL -->
+    <!-- ── WebRTC receiver (fullscreen when casting) ────────────── -->
     <WebView
         android:id="@+id/webview"
         android:layout_width="match_parent"

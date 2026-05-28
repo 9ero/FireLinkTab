@@ -1,5 +1,8 @@
 package dev.firecast.castv2
 
+import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Shader
 import android.net.http.SslError
 import android.os.Bundle
 import android.view.KeyEvent
@@ -20,9 +23,9 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var statusContainer: LinearLayout
     private lateinit var webView: WebView
-    private lateinit var statusMdns: TextView
-    private lateinit var statusDial: TextView
-    private lateinit var statusCast: TextView
+    private lateinit var titleView: TextView
+    private lateinit var urlText: TextView
+    private lateinit var statusReceiver: TextView
 
     private val deviceId     = UUID.randomUUID().toString()
     private val friendlyName = "FireLinkTab"
@@ -31,12 +34,11 @@ class MainActivity : AppCompatActivity() {
     private val dialServer       = lazy { DialServer(8008, deviceId, friendlyName) }
     private val castServer       = lazy { CastV2Server(9009) }
     private val ssdpServer       = lazy { SsdpServer(this, deviceId, DialServer.getLocalIp(), 8008) }
-    private val webServer        = lazy { WebServer(8080) }      // HTTP: receiver.html for WebView
-    private val signalingServer  = lazy { SignalingServer(8081) } // WS: receiver signaling
-    private val controllerServer = lazy { ControllerServer(8443) } // HTTPS+WSS: controller
+    private val webServer        = lazy { WebServer(8080) }
+    private val signalingServer  = lazy { SignalingServer(8081) }
+    private val controllerServer = lazy { ControllerServer(8443) }
 
-    // Track connection state for the "ready" signal
-    @Volatile private var receiverConnected = false
+    @Volatile private var receiverConnected  = false
     @Volatile private var controllerConnected = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,12 +48,37 @@ class MainActivity : AppCompatActivity() {
 
         statusContainer = findViewById(R.id.status_container)
         webView         = findViewById(R.id.webview)
-        statusMdns      = findViewById(R.id.status_mdns)
-        statusDial      = findViewById(R.id.status_dial)
-        statusCast      = findViewById(R.id.status_cast)
+        titleView       = findViewById(R.id.title)
+        urlText         = findViewById(R.id.url_text)
+        statusReceiver  = findViewById(R.id.status_receiver)
+
+        val localIp = DialServer.getLocalIp()
+        urlText.text = "https://$localIp:8443"
+
+        // Apply red→orange gradient to title after layout pass
+        titleView.viewTreeObserver.addOnGlobalLayoutListener {
+            applyTitleGradient()
+        }
 
         setupWebView()
-        startServices()
+        startServices(localIp)
+    }
+
+    private fun applyTitleGradient() {
+        val width = titleView.paint.measureText(titleView.text.toString())
+        if (width <= 0f) return
+        val gradient = LinearGradient(
+            0f, 0f, width, 0f,
+            intArrayOf(
+                Color.parseColor("#FF2D2D"),  // red
+                Color.parseColor("#FF6B00"),  // orange-red
+                Color.parseColor("#FF9500"),  // orange
+            ),
+            floatArrayOf(0f, 0.55f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        titleView.paint.shader = gradient
+        titleView.invalidate()
     }
 
     private fun setupWebView() {
@@ -66,7 +93,7 @@ class MainActivity : AppCompatActivity() {
         webView.webChromeClient = WebChromeClient()
         webView.webViewClient = object : WebViewClient() {
             override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
-                handler.proceed() // Accept app's own self-signed cert
+                handler.proceed()
             }
         }
         WebView.setWebContentsDebuggingEnabled(true)
@@ -80,22 +107,24 @@ class MainActivity : AppCompatActivity() {
         }, "Android")
     }
 
-    private fun startServices() {
-        val localIp = DialServer.getLocalIp()
-
-        // ── Receiver signaling (WS, plain) ────────────────────────────────────
+    private fun startServices(localIp: String) {
+        // ── Receiver signaling (WS plain) ─────────────────────────
         signalingServer.value.apply {
             onConnected = {
                 receiverConnected = true
                 if (controllerConnected) controllerServer.value.sendToController(READY)
+                ui { statusReceiver.text = "● listo"; statusReceiver.setTextColor(READY_COLOR) }
                 android.util.Log.i("Relay", "Receiver connected")
             }
-            onDisconnected = { receiverConnected = false }
+            onDisconnected = {
+                receiverConnected = false
+                ui { statusReceiver.text = "● reconectando…"; statusReceiver.setTextColor(DIM_COLOR) }
+            }
             onMessage = { msg -> controllerServer.value.sendToController(msg) }
             start()
         }
 
-        // ── Controller server (HTTPS + WSS on same port) ──────────────────────
+        // ── Controller server (HTTPS + WSS) ───────────────────────
         controllerServer.value.apply {
             onConnected = {
                 controllerConnected = true
@@ -107,37 +136,23 @@ class MainActivity : AppCompatActivity() {
             start()
         }
 
-        // ── WebServer (HTTP, serves receiver.html to WebView) ─────────────────
+        // ── HTTP server (receiver.html → WebView) ─────────────────
         webServer.value.start()
 
-        // ── mDNS ─────────────────────────────────────────────────────────────
-        discovery.value.onRegistered = { name ->
-            ui { statusMdns.text = "● mDNS: activo ($name)"; statusMdns.setTextColor(GREEN) }
-        }
+        // ── mDNS ──────────────────────────────────────────────────
+        discovery.value.onRegistered = { _ -> }
         discovery.value.start(deviceId, friendlyName, 9009)
-        ui { statusMdns.text = "● mDNS: registrando…" }
 
-        // ── DIAL HTTP (port 8008) ─────────────────────────────────────────────
-        dialServer.value.onAppLaunch = { appId, _ ->
-            ui { statusDial.text = "● DIAL: lanzando $appId" }
-        }
+        // ── DIAL ──────────────────────────────────────────────────
         dialServer.value.start()
-        ui { statusDial.text = "● Visita https://$localIp:8443 para transmitir"; statusDial.setTextColor(GREEN) }
 
-        // ── SSDP ─────────────────────────────────────────────────────────────
+        // ── SSDP ──────────────────────────────────────────────────
         ssdpServer.value.start()
 
-        // ── Cast v2 TLS (port 9009) ───────────────────────────────────────────
-        castServer.value.onStatusUpdate = { msg ->
-            ui { statusCast.text = "● Cast v2: $msg" }
-        }
-        castServer.value.onClientConnected = {
-            ui { statusCast.setTextColor(YELLOW) }
-        }
+        // ── Cast v2 ───────────────────────────────────────────────
         castServer.value.start()
-        ui { statusCast.text = "● Cast v2: escuchando (:9009)"; statusCast.setTextColor(GREEN) }
 
-        // ── Load receiver in WebView (HTTP, cleartext allowed) ────────────────
+        // ── Load receiver in hidden WebView ───────────────────────
         ui {
             webView.loadDataWithBaseURL(
                 "http://$localIp:8080/",
@@ -185,8 +200,8 @@ class MainActivity : AppCompatActivity() {
     private fun ui(block: () -> Unit) = runOnUiThread(block)
 
     companion object {
-        private val GREEN  = 0xFF4CAF50.toInt()
-        private val YELLOW = 0xFFF0A500.toInt()
+        private val READY_COLOR = 0xFF4CAF50.toInt()
+        private val DIM_COLOR   = 0xFF333333.toInt()
         private const val READY = """{"type":"ready"}"""
     }
 }
