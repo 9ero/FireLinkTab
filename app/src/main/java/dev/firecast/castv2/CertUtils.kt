@@ -1,12 +1,22 @@
 package dev.firecast.castv2
 
+import android.content.Context
 import android.util.Log
+import org.bouncycastle.asn1.DEROctetString
 import org.bouncycastle.asn1.x500.X500Name
+import org.bouncycastle.asn1.x509.BasicConstraints
+import org.bouncycastle.asn1.x509.ExtendedKeyUsage
+import org.bouncycastle.asn1.x509.Extension
+import org.bouncycastle.asn1.x509.GeneralName
+import org.bouncycastle.asn1.x509.GeneralNames
+import org.bouncycastle.asn1.x509.KeyPurposeId
+import org.bouncycastle.asn1.x509.KeyUsage
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import java.io.File
 import java.math.BigInteger
+import java.net.InetAddress
 import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.KeyPairGenerator
@@ -23,123 +33,153 @@ import javax.net.ssl.SSLServerSocket
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
+// Two-layer PKI for FireLink:
+//
+//   FireLink Local CA  (persistent, user installs this once in the browser)
+//       └── Server cert   (signed by CA, IP SAN, auto-regenerated when IP changes)
+//
+// The CA cert is served at http://ip:8080/ca.crt for easy one-click installation.
+// Once the CA is trusted, all future HTTPS connections are warning-free.
 object CertUtils {
 
-    private const val TAG      = "CertUtils"
-    private const val KS_FILE  = "firelinkab.p12"
-    private const val KS_ALIAS = "server"
-    private val KS_PASS        = charArrayOf()
+    private const val TAG           = "CertUtils"
+    private const val KS_FILE       = "firelink.p12"
+    private const val KS_PASS_STR   = ""
+    private val KS_PASS             = KS_PASS_STR.toCharArray()
+    private const val CA_ALIAS      = "ca"
+    private const val SERVER_ALIAS  = "server"
 
-    // ── Self-signed cert — persisted across restarts ──────────────────────────
-    // Stored in app internal storage so the browser only needs to accept it once.
+    // ── Public properties ─────────────────────────────────────────────────────
 
-    private var _keyPair: KeyPair?       = null
-    private var _cert: X509Certificate?  = null
-    private var _sslContext: SSLContext? = null
+    var caCert:     X509Certificate? = null; private set
+    var serverCert: X509Certificate? = null; private set
+    var privateKey: PrivateKey?      = null; private set
 
-    val keyPair: KeyPair             get() = _keyPair!!
-    val certificate: X509Certificate get() = _cert!!
-    val privateKey: PrivateKey       get() = keyPair.private
+    private var caKeyPair:     KeyPair? = null
+    private var _sslContext:   SSLContext? = null
+
+    // ── Initialisation ────────────────────────────────────────────────────────
 
     /**
-     * Must be called once at app start (e.g. from MainActivity.onCreate).
-     * Loads the persisted cert/key from internal storage, or generates and saves a new one.
+     * Call once from MainActivity.onCreate().
+     * Loads or generates the CA + server cert, regenerating the server cert
+     * automatically if the device IP has changed since last run.
      */
-    fun init(context: android.content.Context) {
-        if (_keyPair != null) return
-        val ksFile = java.io.File(context.filesDir, KS_FILE)
+    fun init(context: Context) {
+        val currentIp = localIp()
+        val ksFile    = File(context.filesDir, KS_FILE)
+
+        var ks         = KeyStore.getInstance("PKCS12").apply { load(null, KS_PASS) }
+        var needsCa    = true
+        var needsServer = true
+
         if (ksFile.exists()) {
             try {
-                val ks = KeyStore.getInstance("PKCS12").apply {
+                ks = KeyStore.getInstance("PKCS12").apply {
                     ksFile.inputStream().use { load(it, KS_PASS) }
                 }
-                val entry = ks.getEntry(KS_ALIAS, KeyStore.PasswordProtection(KS_PASS))
+                // Load CA
+                val caEntry = ks.getEntry(CA_ALIAS, KeyStore.PasswordProtection(KS_PASS))
                         as? KeyStore.PrivateKeyEntry
-                if (entry != null) {
-                    _keyPair = java.security.KeyPair(entry.certificate.publicKey, entry.privateKey)
-                    _cert    = entry.certificate as X509Certificate
-                    Log.i(TAG, "Loaded persisted cert (expires ${_cert!!.notAfter})")
-                    return
+                if (caEntry != null) {
+                    caKeyPair = KeyPair(caEntry.certificate.publicKey, caEntry.privateKey)
+                    caCert    = caEntry.certificate as X509Certificate
+                    needsCa   = false
+                    Log.i(TAG, "CA loaded (expires ${caCert!!.notAfter})")
+                }
+
+                // Load server cert — only reuse if IP matches
+                if (!needsCa) {
+                    val srvEntry = ks.getEntry(SERVER_ALIAS, KeyStore.PasswordProtection(KS_PASS))
+                            as? KeyStore.PrivateKeyEntry
+                    if (srvEntry != null) {
+                        val certIp = ipFromCert(srvEntry.certificate as X509Certificate)
+                        if (certIp == currentIp) {
+                            privateKey  = srvEntry.privateKey
+                            serverCert  = srvEntry.certificate as X509Certificate
+                            needsServer = false
+                            Log.i(TAG, "Server cert loaded for $currentIp")
+                        } else {
+                            Log.i(TAG, "IP changed ($certIp → $currentIp), regenerating server cert")
+                        }
+                    }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Could not load persisted cert, regenerating: ${e.message}")
+                Log.w(TAG, "Keystore load error — regenerating: ${e.message}")
+                ks = KeyStore.getInstance("PKCS12").apply { load(null, KS_PASS) }
+                needsCa = true; needsServer = true
             }
         }
 
-        // Generate new cert and persist it
-        val kp   = KeyPairGenerator.getInstance("RSA").run { initialize(2048); generateKeyPair() }
-        val cert = buildSelfSigned(kp)
-        val ks   = KeyStore.getInstance("PKCS12").apply {
-            load(null, KS_PASS)
-            setKeyEntry(KS_ALIAS, kp.private, KS_PASS, arrayOf(cert))
+        if (needsCa) {
+            val kp   = genRsaKeyPair()
+            val cert = buildCaCert(kp)
+            caKeyPair = kp
+            caCert    = cert
+            ks.setKeyEntry(CA_ALIAS, kp.private, KS_PASS, arrayOf(cert))
+            needsServer = true
+            Log.i(TAG, "New CA generated")
         }
+
+        if (needsServer) {
+            val kp   = genRsaKeyPair()
+            val cert = buildServerCert(kp, currentIp, caKeyPair!!, caCert!!)
+            privateKey  = kp.private
+            serverCert  = cert
+            // Chain: [server, CA] so browsers receive the full chain during TLS
+            ks.setKeyEntry(SERVER_ALIAS, kp.private, KS_PASS, arrayOf(cert, caCert))
+            Log.i(TAG, "New server cert generated for $currentIp")
+        }
+
         ksFile.outputStream().use { ks.store(it, KS_PASS) }
-        _keyPair = kp
-        _cert    = cert
-        Log.i(TAG, "Generated and persisted new self-signed cert")
+        _sslContext = null // invalidate cached context
     }
 
-    fun sslContext(): SSLContext = _sslContext ?: buildSslContext().also { _sslContext = it }
+    // ── Cast v2 server socket (self-signed, BouncyCastle TLS) ─────────────────
 
-    private fun buildSelfSigned(kp: KeyPair): X509Certificate {
-        val subject  = X500Name("CN=FireLinkTab,O=FireLinkTab,C=US")
-        val now      = Date()
-        val notAfter = Date(now.time + 10L * 365 * 24 * 3600 * 1000)
-        val builder  = JcaX509v3CertificateBuilder(subject, BigInteger.ONE, now, notAfter, subject, kp.public)
-        val signer   = JcaContentSignerBuilder("SHA256WithRSA").build(kp.private)
-        return JcaX509CertificateConverter().getCertificate(builder.build(signer))
-    }
-
-    private fun buildSslContext(): SSLContext {
-        val ks = KeyStore.getInstance("PKCS12").apply {
-            load(null, KS_PASS)
-            setKeyEntry("cast", keyPair.private, KS_PASS, arrayOf(certificate))
-        }
-        val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply {
-            init(ks, KS_PASS)
-        }
-        return SSLContext.getInstance("TLS").apply { init(kmf.keyManagers, trustAllManager(), null) }
-    }
-
-    /** Cast v2 server socket (BouncyCastle TLS — compatible with Chrome's Cast client). */
     fun createServerSocket(port: Int): SSLServerSocket {
-        val ss = sslContext().serverSocketFactory.createServerSocket(port) as SSLServerSocket
+        val ctx = castSslContext()
+        val ss  = ctx.serverSocketFactory.createServerSocket(port) as SSLServerSocket
         ss.needClientAuth = false
         ss.wantClientAuth = false
         return ss
     }
 
-    // ── HTTPS server socket ───────────────────────────────────────────────────
+    private fun castSslContext(): SSLContext = _sslContext ?: run {
+        // Cast v2 uses the old self-signed approach — same cert, BouncyCastle TLS
+        val ks = KeyStore.getInstance("PKCS12").apply {
+            load(null, KS_PASS)
+            setKeyEntry("cast", privateKey, KS_PASS, arrayOf(serverCert))
+        }
+        val kmf = kmfFrom(ks)
+        SSLContext.getInstance("TLS").apply { init(kmf.keyManagers, trustAll(), null) }
+    }.also { _sslContext = it }
+
+    // ── HTTPS server socket (native TLS — Chrome compatible) ──────────────────
 
     /**
-     * Creates an HTTPS server socket using the native Android TLS provider (Conscrypt/AndroidOpenSSL).
-     * If [certFile] and [keyFile] are provided and valid (mkcert or similar), they are used —
-     * no browser warning will appear. Falls back to the self-signed cert otherwise.
-     *
-     * Expected file format: PEM (the default output of mkcert).
-     * Typical setup:
-     *   mkcert -install
-     *   mkcert <firetv-ip>
-     *   adb push <ip>.pem       /sdcard/Android/data/dev.firecast.castv2/files/cert.pem
-     *   adb push <ip>-key.pem   /sdcard/Android/data/dev.firecast.castv2/files/key.pem
+     * Creates an HTTPS/WSS server socket.
+     * Priority: mkcert external cert → self-hosted CA cert.
      */
-    fun createHttpsServerSocket(port: Int, certFile: File? = null, keyFile: File? = null): SSLServerSocket {
-        val kmf = if (certFile != null && keyFile != null && certFile.exists() && keyFile.exists()) {
-            loadExternalKmf(certFile, keyFile)
+    fun createHttpsServerSocket(
+        port: Int,
+        certFile: File? = null,
+        keyFile:  File? = null,
+    ): SSLServerSocket {
+        val kmf = if (certFile?.exists() == true && keyFile?.exists() == true) {
+            loadMkcertKmf(certFile, keyFile)
+                ?.also { Log.i(TAG, "Using mkcert cert: ${certFile.name}") }
         } else null
 
-        if (kmf == null && certFile != null) {
-            Log.w(TAG, "External cert not loaded — falling back to self-signed")
-        } else if (kmf != null) {
-            Log.i(TAG, "Using external cert: ${certFile!!.name}")
-        }
-
         val finalKmf = kmf ?: run {
+            // Use self-hosted CA cert chain
             val ks = KeyStore.getInstance("PKCS12").apply {
-                load(null, null)
-                setKeyEntry("key", privateKey, null, arrayOf(certificate))
+                load(null, KS_PASS)
+                setKeyEntry(SERVER_ALIAS, privateKey, KS_PASS, arrayOf(serverCert, caCert))
             }
-            KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply { init(ks, null) }
+            kmfFrom(ks).also {
+                if (kmf == null && certFile != null) Log.w(TAG, "mkcert cert not found, using CA cert")
+            }
         }
 
         val nativeProvider = java.security.Security.getProviders().firstOrNull { p ->
@@ -150,7 +190,7 @@ object CertUtils {
             SSLContext.getInstance("TLS", nativeProvider)
         else
             SSLContext.getInstance("TLS")
-        ctx.init(finalKmf.keyManagers, trustAllManager(), null)
+        ctx.init(finalKmf.keyManagers, trustAll(), null)
 
         return (ctx.serverSocketFactory.createServerSocket(port) as SSLServerSocket).also { ss ->
             ss.needClientAuth = false
@@ -161,47 +201,103 @@ object CertUtils {
         }
     }
 
-    // ── PEM loader ────────────────────────────────────────────────────────────
+    // ── CA cert access ────────────────────────────────────────────────────────
 
-    private fun loadExternalKmf(certFile: File, keyFile: File): KeyManagerFactory? {
-        return try {
-            // Certificate (PEM — CertificateFactory handles the header automatically)
-            val cert = certFile.inputStream().use { input ->
-                CertificateFactory.getInstance("X.509").generateCertificate(input) as X509Certificate
-            }
+    /** DER-encoded CA cert bytes — served at /ca.crt for browser installation. */
+    fun caCertDer(): ByteArray = caCert?.encoded ?: ByteArray(0)
 
-            // Private key — strip PEM headers and decode base64
-            val keyPem = keyFile.readText()
-                .replace(Regex("-----BEGIN.*?-----"), "")
-                .replace(Regex("-----END.*?-----"), "")
-                .replace(Regex("\\s"), "")
-            val keyBytes = Base64.getDecoder().decode(keyPem)
-            val key = try {
-                KeyFactory.getInstance("RSA").generatePrivate(PKCS8EncodedKeySpec(keyBytes))
-            } catch (e: Exception) {
-                KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(keyBytes))
-            }
+    /** Standard external files dir — writable via ADB without root. */
+    fun certDir(context: Context): File =
+        context.getExternalFilesDir(null) ?: context.filesDir
 
-            val ks = KeyStore.getInstance("PKCS12").apply {
-                load(null, null)
-                setKeyEntry("mkcert", key, null, arrayOf(cert))
-            }
-            KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply { init(ks, null) }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to load external cert: ${e.message}")
-            null
+    // ── Cert builders ─────────────────────────────────────────────────────────
+
+    private fun buildCaCert(kp: KeyPair): X509Certificate {
+        val name     = X500Name("CN=FireLink Local CA,O=FireLink")
+        val now      = Date()
+        val notAfter = Date(now.time + 10L * 365 * 24 * 3600 * 1000)
+        return JcaX509v3CertificateBuilder(name, BigInteger.ONE, now, notAfter, name, kp.public)
+            .addExtension(Extension.basicConstraints, true, BasicConstraints(true))
+            .addExtension(Extension.keyUsage, true,
+                KeyUsage(KeyUsage.keyCertSign or KeyUsage.cRLSign))
+            .build(JcaContentSignerBuilder("SHA256WithRSA").build(kp.private))
+            .let { JcaX509CertificateConverter().getCertificate(it) }
+    }
+
+    private fun buildServerCert(
+        kp: KeyPair, ip: String,
+        caKp: KeyPair, caCert: X509Certificate,
+    ): X509Certificate {
+        val subject  = X500Name("CN=FireLink Server,O=FireLink")
+        val issuer   = X500Name("CN=FireLink Local CA,O=FireLink")
+        val now      = Date()
+        val notAfter = Date(now.time + 2L * 365 * 24 * 3600 * 1000)
+        val ipBytes  = InetAddress.getByName(ip).address   // 4 bytes for IPv4
+        return JcaX509v3CertificateBuilder(
+                issuer, BigInteger.valueOf(2), now, notAfter, subject, kp.public)
+            .addExtension(Extension.basicConstraints, true, BasicConstraints(false))
+            .addExtension(Extension.keyUsage, true,
+                KeyUsage(KeyUsage.digitalSignature or KeyUsage.keyEncipherment))
+            .addExtension(Extension.extendedKeyUsage, false,
+                ExtendedKeyUsage(KeyPurposeId.id_kp_serverAuth))
+            .addExtension(Extension.subjectAlternativeName, false,
+                GeneralNames(GeneralName(GeneralName.iPAddress, DEROctetString(ipBytes))))
+            .build(JcaContentSignerBuilder("SHA256WithRSA").build(caKp.private))
+            .let { JcaX509CertificateConverter().getCertificate(it) }
+    }
+
+    // ── mkcert PEM loader ─────────────────────────────────────────────────────
+
+    private fun loadMkcertKmf(certFile: File, keyFile: File): KeyManagerFactory? = try {
+        val cert = certFile.inputStream().use { input ->
+            CertificateFactory.getInstance("X.509").generateCertificate(input) as X509Certificate
         }
+        val keyPem = keyFile.readText()
+            .replace(Regex("-----BEGIN.*?-----"), "")
+            .replace(Regex("-----END.*?-----"), "")
+            .replace(Regex("\\s"), "")
+        val keyBytes = Base64.getDecoder().decode(keyPem)
+        val key = try {
+            KeyFactory.getInstance("RSA").generatePrivate(PKCS8EncodedKeySpec(keyBytes))
+        } catch (e: Exception) {
+            KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(keyBytes))
+        }
+        val ks = KeyStore.getInstance("PKCS12").apply {
+            load(null, KS_PASS)
+            setKeyEntry("mkcert", key, KS_PASS, arrayOf(cert))
+        }
+        kmfFrom(ks)
+    } catch (e: Exception) {
+        Log.e(TAG, "mkcert load failed: ${e.message}"); null
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private fun trustAllManager() = arrayOf<TrustManager>(object : X509TrustManager {
+    private fun genRsaKeyPair() =
+        KeyPairGenerator.getInstance("RSA").run { initialize(2048); generateKeyPair() }
+
+    private fun kmfFrom(ks: KeyStore) =
+        KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply {
+            init(ks, KS_PASS)
+        }
+
+    private fun trustAll() = arrayOf<TrustManager>(object : X509TrustManager {
         override fun checkClientTrusted(c: Array<out X509Certificate>?, a: String?) = Unit
         override fun checkServerTrusted(c: Array<out X509Certificate>?, a: String?) = Unit
         override fun getAcceptedIssuers() = emptyArray<X509Certificate>()
     })
 
-    /** Standard directory for cert files, writable via ADB without root. */
-    fun certDir(context: android.content.Context): File =
-        context.getExternalFilesDir(null) ?: context.filesDir
+    /** Read the first iPAddress SAN from a cert, or null if absent. */
+    private fun ipFromCert(cert: X509Certificate): String? = try {
+        cert.subjectAlternativeNames
+            ?.firstOrNull { (it as List<*>)[0] == 7 }
+            ?.let { (it as List<*>)[1] as? String }
+    } catch (e: Exception) { null }
+
+    fun localIp(): String = try {
+        java.net.NetworkInterface.getNetworkInterfaces().toList()
+            .flatMap { it.inetAddresses.toList() }
+            .firstOrNull { !it.isLoopbackAddress && it is java.net.Inet4Address }
+            ?.hostAddress ?: "127.0.0.1"
+    } catch (e: Exception) { "127.0.0.1" }
 }

@@ -28,7 +28,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusReceiver: TextView
 
     private val deviceId     = UUID.randomUUID().toString()
-    private val friendlyName = "FireLinkTab"
+    private val friendlyName = "FireLink"
 
     private val discovery        = lazy { CastDiscovery(this) }
     private val dialServer       = lazy { DialServer(8008, deviceId, friendlyName) }
@@ -61,9 +61,11 @@ class MainActivity : AppCompatActivity() {
         titleView       = findViewById(R.id.title)
         urlText         = findViewById(R.id.url_text)
         statusReceiver  = findViewById(R.id.status_receiver)
+        val caHint: TextView = findViewById(R.id.ca_hint)
 
-        val localIp = DialServer.getLocalIp()
+        val localIp = CertUtils.localIp()
         urlText.text = "https://$localIp:8443"
+        caHint.text  = "🔑  Primera vez: instala el certificado CA desde http://$localIp:8080/ca.crt"
 
         if (hasMkcert) {
             // Cert verified by mkcert — no browser warning

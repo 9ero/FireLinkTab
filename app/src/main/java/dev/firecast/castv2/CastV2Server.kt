@@ -98,8 +98,8 @@ class CastV2Server(private val port: Int = 9009) {
         // reject it — but we implement the full response so we can observe the exact
         // error and explore alternatives (e.g., extracting a real device cert).
         try {
-            val certDer    = CertUtils.certificate.encoded
-            val privateKey = CertUtils.privateKey
+            val certDer    = CertUtils.serverCert!!.encoded
+            val privateKey = CertUtils.privateKey!!
 
             // Sign: if sender_nonce present use it, else sign the cert itself
             val dataToSign = challenge.senderNonce ?: certDer

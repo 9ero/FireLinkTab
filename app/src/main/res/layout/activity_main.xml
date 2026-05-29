@@ -22,7 +22,7 @@
             android:id="@+id/title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="FireLinkTab"
+            android:text="FireLink"
             android:textSize="58sp"
             android:textStyle="bold"
             android:fontFamily="sans-serif-medium"
@@ -33,7 +33,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Tab casting para Fire TV"
+            android:text="Transmite cualquier app al Fire TV"
             android:textColor="#555555"
             android:textSize="15sp"
             android:fontFamily="sans-serif-light"
@@ -56,7 +56,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Abre en Chrome o Brave desde tu computadora"
+                android:text="Abre en cualquier navegador de escritorio"
                 android:textColor="#555555"
                 android:textSize="13sp"
                 android:fontFamily="sans-serif-light"
@@ -94,6 +94,17 @@
             android:textSize="13sp"
             android:fontFamily="sans-serif-light"
             android:layout_marginTop="8dp"/>
+
+        <!-- CA cert download hint -->
+        <TextView
+            android:id="@+id/ca_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🔑  Primera vez: instala el certificado CA desde http://—:8080/ca.crt"
+            android:textColor="#2A2A2A"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:layout_marginTop="6dp"/>
 
         <!-- Receiver status dot -->
         <TextView

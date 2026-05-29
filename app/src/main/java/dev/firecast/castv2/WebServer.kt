@@ -36,11 +36,43 @@ class WebServer(private val port: Int = 8080) {
             val path = requestLine.split(" ").getOrElse(1) { "/" }
             Log.d(TAG, "GET $path")
             val out = socket.outputStream
-            val body = when {
-                path == "/receiver" -> RECEIVER_HTML
-                path == "/ping"     -> "pong"
-                else                -> RECEIVER_HTML
-            }.toByteArray(Charsets.UTF_8)
+            if (path.startsWith("/script/")) {
+                val os  = path.removePrefix("/script/")
+                val ip  = CertUtils.localIp()
+                val (script, fname, mime) = when (os) {
+                    "win"   -> Triple(winScript(ip),   "instalar-firelink-ca.ps1", "text/plain")
+                    "linux" -> Triple(shScript(ip),    "instalar-firelink-ca.sh",  "text/x-sh")
+                    "mac"   -> Triple(macScript(ip),   "instalar-firelink-ca.sh",  "text/x-sh")
+                    else    -> { send404(out); return }
+                }
+                val bytes = script.toByteArray(Charsets.UTF_8)
+                val header = "HTTP/1.1 200 OK\r\nContent-Type: $mime\r\n" +
+                    "Content-Disposition: attachment; filename=\"$fname\"\r\n" +
+                    "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
+                out.write(header.toByteArray()); out.write(bytes); out.flush()
+                return
+            }
+
+            if (path == "/ca.crt") {
+                // Serve CA cert as PEM — compatible with update-ca-certificates (Linux),
+                // security add-trusted-cert (macOS), and Import-Certificate (Windows).
+                val pem = caCertPem()
+                val bytes = pem.toByteArray(Charsets.UTF_8)
+                val header = "HTTP/1.1 200 OK\r\n" +
+                    "Content-Type: application/x-x509-ca-cert\r\n" +
+                    "Content-Disposition: attachment; filename=\"FireLink-CA.crt\"\r\n" +
+                    "Content-Length: ${bytes.size}\r\n" +
+                    "Connection: close\r\n\r\n"
+                out.write(header.toByteArray())
+                out.write(bytes)
+                out.flush()
+                return
+            }
+
+            val body = when (path) {
+                "/ping"     -> "pong".toByteArray()
+                else        -> RECEIVER_HTML.toByteArray(Charsets.UTF_8)
+            }
             val header = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n"
             out.write(header.toByteArray())
             out.write(body)
@@ -54,6 +86,106 @@ class WebServer(private val port: Int = 8080) {
 
     companion object {
         private const val TAG = "WebServer"
+
+        /** CA cert in PEM format (base64-wrapped, with headers). */
+        private fun caCertPem(): String {
+            val der     = CertUtils.caCertDer()
+            val b64     = java.util.Base64.getMimeEncoder(64, "\n".toByteArray()).encodeToString(der)
+            return "-----BEGIN CERTIFICATE-----\n$b64\n-----END CERTIFICATE-----\n"
+        }
+
+        private fun send404(out: java.io.OutputStream) {
+            out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".toByteArray())
+            out.flush()
+        }
+
+        // ── Installation scripts ─────────────────────────────────────────────
+        // Using $S shorthand to avoid Kotlin string interpolation conflicts
+        // with PowerShell/Bash $ variables.
+
+        private val S = "\$"   // literal dollar sign
+
+        // Scripts download the cert directly from the Fire TV — user only needs to
+        // run the script, no manual cert download required.
+
+        internal fun winScript(ip: String) = """
+# FireLink CA — Instalador Windows
+# Clic derecho -> "Ejecutar con PowerShell"
+param()
+if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell -Verb RunAs "-NoProfile -ExecutionPolicy Bypass -File `"${S}PSCommandPath`""
+    exit
+}
+${S}cert = "${S}env:TEMP\FireLink-CA.crt"
+Write-Host "Descargando certificado desde Fire TV..." -ForegroundColor Cyan
+try {
+    Invoke-WebRequest -Uri "http://$ip:8080/ca.crt" -OutFile ${S}cert -UseBasicParsing
+} catch {
+    Write-Host "ERROR: No se pudo conectar con el Fire TV en $ip." -ForegroundColor Red
+    Write-Host "Asegurate de estar en la misma red WiFi." -ForegroundColor Yellow
+    Read-Host "Presiona Enter para salir"; exit 1
+}
+Import-Certificate -FilePath ${S}cert -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+Remove-Item ${S}cert -Force
+Write-Host "Certificado instalado correctamente." -ForegroundColor Green
+Write-Host "Reinicia Chrome, Brave o Edge y recarga la pagina." -ForegroundColor Yellow
+Read-Host "Presiona Enter para salir"
+""".trimIndent()
+
+        internal fun shScript(ip: String) = """
+#!/bin/bash
+# FireLink CA — Instalador Linux
+# Ejecuta con: bash instalar-firelink-ca.sh
+CERT="/tmp/FireLink-CA.crt"
+echo "Descargando certificado desde Fire TV..."
+if command -v curl &>/dev/null; then
+  curl -sf "http://$ip:8080/ca.crt" -o "${S}CERT" || { echo "ERROR: No se pudo conectar con $ip. Mismo WiFi?"; exit 1; }
+elif command -v wget &>/dev/null; then
+  wget -q "http://$ip:8080/ca.crt" -O "${S}CERT" || { echo "ERROR: No se pudo conectar con $ip. Mismo WiFi?"; exit 1; }
+else
+  echo "ERROR: Se necesita curl o wget."; exit 1
+fi
+
+# Trust del sistema (Debian/Ubuntu y derivados) — cert ya viene en PEM
+if command -v update-ca-certificates &>/dev/null; then
+  sudo cp "${S}CERT" /usr/local/share/ca-certificates/FireLink-CA.crt
+  sudo update-ca-certificates
+fi
+
+# Trust del navegador (NSS database: Chrome, Brave, Edge)
+if ! command -v certutil &>/dev/null; then
+  echo "Instalando libnss3-tools..."
+  sudo apt-get install -y libnss3-tools 2>/dev/null || \
+  sudo dnf install -y nss-tools 2>/dev/null || \
+  sudo pacman -S --noconfirm nss 2>/dev/null || true
+fi
+if command -v certutil &>/dev/null; then
+  mkdir -p "${S}HOME/.pki/nssdb"
+  # Always recreate DB to avoid corruption (old cert8.db/key3.db or bad sql DB)
+  rm -f "${S}HOME/.pki/nssdb/cert8.db" "${S}HOME/.pki/nssdb/key3.db" \
+        "${S}HOME/.pki/nssdb/secmod.db" "${S}HOME/.pki/nssdb/cert9.db" \
+        "${S}HOME/.pki/nssdb/key4.db"   "${S}HOME/.pki/nssdb/pkcs11.txt"
+  certutil -d sql:"${S}HOME/.pki/nssdb" -N --empty-password
+  certutil -d sql:"${S}HOME/.pki/nssdb" -A -t "CT,," -n "FireLink Local CA" -i "${S}CERT"
+fi
+
+rm -f "${S}CERT"
+echo "Listo — reinicia Chrome, Brave o Edge."
+""".trimIndent()
+
+        internal fun macScript(ip: String) = """
+#!/bin/bash
+# FireLink CA — Instalador macOS
+# Ejecuta con: bash instalar-firelink-ca.sh
+set -e
+CERT="/tmp/FireLink-CA.crt"
+echo "Descargando certificado desde Fire TV..."
+curl -sf "http://$ip:8080/ca.crt" -o "${S}CERT" || { echo "ERROR: No se pudo conectar con $ip. Mismo WiFi?"; exit 1; }
+sudo security add-trusted-cert -d -r trustRoot \
+  -k /Library/Keychains/System.keychain "${S}CERT"
+rm -f "${S}CERT"
+echo "Certificado instalado. Reinicia Safari, Chrome o Brave."
+""".trimIndent()
 
         // ── Controller page (Chrome) ──────────────────────────────────────────
         val CONTROLLER_HTML = """<!DOCTYPE html>
@@ -270,6 +402,8 @@ function connect() {
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         ws.send(JSON.stringify({type:'answer', from:'receiver', sdp:pc.localDescription}));
+      } else if (msg.type === 'answer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
       } else if (msg.type === 'ice' && msg.from === 'controller') {
         await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
       }

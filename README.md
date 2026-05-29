@@ -1,8 +1,8 @@
-# FireLinkTab
+# FireLink
 
 App Android que convierte un **Fire TV / Android TV** en un receptor de pantalla al que cualquier Chrome/Brave de escritorio puede transmitir sin instalar ninguna extensión.
 
-**FireLinkTab** = *Fire* (TV + suena a *free*) + *Link* (enlace directo) + *Tab* (tab casting, comparte letras con *cast*)
+**FireLink** = *Fire* (TV + suena a *free*) + *Link* (enlace directo con cualquier app del ordenador)
 
 ## Compatibilidad
 
@@ -14,9 +14,9 @@ App Android que convierte un **Fire TV / Android TV** en un receptor de pantalla
 | Firefox | 🔲 sin probar | ❌ |
 | Safari | 🔲 sin probar | ❌ |
 
-> **¿Por qué no funciona en móvil?** `getDisplayMedia()` es una API exclusiva de navegadores de escritorio. No es una limitación de FireLinkTab — ninguna app puede capturar pantalla desde el navegador en iOS o Android.
+> **¿Por qué no funciona en móvil?** `getDisplayMedia()` es una API exclusiva de navegadores de escritorio. No es una limitación de FireLink — ninguna app puede capturar pantalla desde el navegador en iOS o Android.
 >
-> El nombre **FireLinkTab** no referencia Chrome deliberadamente: funciona en cualquier navegador de escritorio que soporte `getDisplayMedia`.
+> El nombre **FireLink** no referencia Chrome deliberadamente: funciona en cualquier navegador de escritorio que soporte `getDisplayMedia`.
 
 ---
 
@@ -101,8 +101,17 @@ Haz clic en **Avanzado → Acceder a \<ip\> (sitio no seguro)**.
 ### 3 — Transmitir
 
 1. Haz clic en **Compartir pantalla**
-2. Selecciona una pestaña, ventana o pantalla completa
+2. Elige **Una ventana** o **Pantalla completa** — funciona con cualquier app del ordenador (juegos, streaming, editores…)
 3. El contenido aparece en el Fire TV al instante
+
+**Para incluir audio del sistema:**
+
+| Sistema | Cómo activarlo |
+|---|---|
+| **Linux** | Comparte pantalla → haz clic en **Agregar audio del sistema** → en el selector del navegador elige **Monitor of Built-in Audio** (PulseAudio) o el monitor equivalente de PipeWire. Si eliges el micrófono por error, captura el micrófono. |
+| **Windows — pantalla completa** | En el diálogo del navegador activa el checkbox **Compartir audio del sistema** antes de confirmar. |
+| **Windows — ventana** | La captura de ventana no incluye audio en Windows. La página detecta automáticamente si tienes Stereo Mix o un cable virtual (VB-Audio); si no, muestra una guía para activarlo. |
+| **macOS** | No disponible — `getDisplayMedia` en macOS no expone audio del sistema. |
 
 Para detener: haz clic en **Detener** en la página, cierra la pestaña que estabas compartiendo, o presiona **Atrás** en el mando del Fire TV.
 
@@ -191,11 +200,20 @@ La `MainActivity` actúa como puente entre el `SignalingServer` (WS) y el `Contr
 ### Navegadores móviles
 `getDisplayMedia()` no está disponible en ningún navegador móvil (Chrome Android, Safari iOS, Firefox Android…). Es una restricción de la especificación W3C, no de esta app. La página muestra un aviso específico cuando detecta un dispositivo móvil.
 
+### Audio del sistema en Linux
+El botón "Agregar audio del sistema" usa `getUserMedia`, que abre el **selector de dispositivos de audio del navegador**. El usuario debe elegir explícitamente **Monitor of Built-in Audio** (PulseAudio) o el monitor equivalente en PipeWire. Si se selecciona el micrófono, se capturará el micrófono en lugar del sistema. La app no puede preseleccionar el dispositivo — el selector es controlado por el navegador.
+
+### Audio del sistema en macOS
+`getDisplayMedia` en macOS no expone audio del sistema. Requeriría una extensión de kernel de terceros (BlackHole, Soundflower) que el usuario debería instalar por separado.
+
 ### Advertencia de certificado
 El certificado TLS es autofirmado y generado en tiempo de ejecución. Chrome muestra una advertencia la primera vez. Esto es esperable — el certificado protege la conexión pero no está firmado por una CA pública.
 
 ### Cast v2 (botón nativo de Chrome)
 El botón Cast nativo de Chrome descubre el dispositivo (aparece en el diálogo con los demás Chromecasts) pero no puede conectarse porque Google valida el certificado de dispositivo contra su propia CA. Este proyecto implementa el protocolo completo pero carece del certificado de dispositivo emitido por Google.
+
+### Calidad baja al inicio (primeros 20-40 segundos)
+WebRTC arranca con una tasa de bits conservadora y la va aumentando a medida que su algoritmo de estimación de ancho de banda (BWE) mide la capacidad real del enlace. En LAN la calidad sube sola en ese intervalo hasta estabilizarse en alta resolución. Es comportamiento esperado, no un problema de la app.
 
 ### LAN únicamente
 La señalización y el stream WebRTC usan candidatos ICE locales. Funciona en la misma red local; no funciona a través de internet sin un servidor TURN.
@@ -229,12 +247,10 @@ I/ReceiverJS:       Esperando controlador…
 
 ## Proyecto relacionado
 
-## Licencia
-
-[PolyForm Noncommercial 1.0.0](LICENSE) — uso personal y doméstico libre. Uso comercial requiere acuerdo con el autor: juan.fernadez.araya@gmail.com
+[firecast](../firecast) — solución funcional con extensión de Chrome (el botón Cast nativo funciona; requiere instalar la extensión una vez).
 
 ---
 
-## Proyecto relacionado
+## Licencia
 
-[firecast](../firecast) — solución funcional con extensión de Chrome (el botón Cast nativo funciona; requiere instalar la extensión una vez).
+[PolyForm Noncommercial 1.0.0](LICENSE) — uso personal y doméstico libre. Uso comercial requiere acuerdo con el autor: juan.fernadez.araya@gmail.com
