@@ -11,6 +11,9 @@ captures/
 # Session logs
 media_router_internals_*.json
 
+# Exported CA certs (runtime artifacts, not source)
+*.crt
+
 # General
 .DS_Store
 *.swp
