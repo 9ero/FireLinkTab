@@ -90,7 +90,7 @@ class WebServer(private val port: Int = 8080) {
         /** CA cert in PEM format (base64-wrapped, with headers). */
         private fun caCertPem(): String {
             val der     = CertUtils.caCertDer()
-            val b64     = java.util.Base64.getMimeEncoder(64, "\n".toByteArray()).encodeToString(der)
+            val b64     = android.util.Base64.encodeToString(der, android.util.Base64.NO_WRAP).chunked(64).joinToString("\n")
             return "-----BEGIN CERTIFICATE-----\n$b64\n-----END CERTIFICATE-----\n"
         }
 

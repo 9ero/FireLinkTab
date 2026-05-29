@@ -6,7 +6,7 @@ import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.OutputStream
 import java.security.MessageDigest
-import java.util.Base64
+import android.util.Base64
 import javax.net.ssl.SSLSocket
 import kotlin.concurrent.thread
 
@@ -187,7 +187,7 @@ class ControllerServer(
     private fun computeAccept(key: String): String {
         val digest = MessageDigest.getInstance("SHA-1")
             .digest("$key$WS_MAGIC".toByteArray(Charsets.UTF_8))
-        return Base64.getEncoder().encodeToString(digest)
+        return Base64.encodeToString(digest, Base64.NO_WRAP)
     }
 
     companion object {

@@ -6,7 +6,7 @@ import java.io.OutputStream
 import java.net.ServerSocket
 import java.net.Socket
 import java.security.MessageDigest
-import java.util.Base64
+import android.util.Base64
 import kotlin.concurrent.thread
 
 // Plain WS (no TLS) signaling server for the receiver (WebView on Fire TV).
@@ -119,7 +119,7 @@ class SignalingServer(private val port: Int = 8081) {
     private fun computeAccept(key: String): String {
         val digest = MessageDigest.getInstance("SHA-1")
             .digest("$key$WS_MAGIC".toByteArray(Charsets.UTF_8))
-        return Base64.getEncoder().encodeToString(digest)
+        return Base64.encodeToString(digest, Base64.NO_WRAP)
     }
 
     companion object {

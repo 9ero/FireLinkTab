@@ -25,7 +25,7 @@ import java.security.PrivateKey
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.security.spec.PKCS8EncodedKeySpec
-import java.util.Base64
+import android.util.Base64
 import java.util.Date
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
@@ -256,7 +256,7 @@ object CertUtils {
             .replace(Regex("-----BEGIN.*?-----"), "")
             .replace(Regex("-----END.*?-----"), "")
             .replace(Regex("\\s"), "")
-        val keyBytes = Base64.getDecoder().decode(keyPem)
+        val keyBytes = Base64.decode(keyPem, Base64.DEFAULT)
         val key = try {
             KeyFactory.getInstance("RSA").generatePrivate(PKCS8EncodedKeySpec(keyBytes))
         } catch (e: Exception) {
