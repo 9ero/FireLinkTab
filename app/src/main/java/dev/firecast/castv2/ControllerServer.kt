@@ -270,6 +270,10 @@ summary:hover{color:#555}
     style="display:none;margin-top:8px;background:linear-gradient(135deg,#1565c0,#0d47a1);font-size:.88rem">
     &#127925; Agregar audio del sistema
   </button>
+  <button class="cast-btn" id="mic-btn" onclick="toggleMic()"
+    style="display:none;margin-top:8px;background:#1a1a1a;border:1px solid #444;color:#888;font-size:.88rem">
+    &#127908; Micrófono: OFF
+  </button>
   <p id="status"></p>
   <div style="margin-top:14px;background:#241a00;border:1px solid #7a5200;border-radius:8px;
               padding:12px 14px;text-align:left">
@@ -353,6 +357,7 @@ summary:hover{color:#555}
 const IP       = location.hostname;
 const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 const canCast  = !isMobile && !!navigator.mediaDevices?.getDisplayMedia;
+let micTrack = null;
 
 if (isMobile) {
   document.getElementById('warn-mobile').style.display = 'block';
@@ -486,7 +491,7 @@ async function startCast() {
       }
     };
     ws.onerror = () => { status.innerHTML = '<span class="dot red"></span>Error WebSocket'; resetBtn(); };
-    stream.getTracks()[0].onended = stopCast;
+    stream.getVideoTracks().forEach(t => { t.onended = stopCast; });
   } catch(e) {
     status.innerHTML = '<span class="dot red"></span>' + e.message;
     resetBtn();
@@ -502,16 +507,9 @@ async function findLoopbackDevice() {
 }
 
 async function tryLinuxLoopback() {
-  const dev = await findLoopbackDevice();
-  if (dev) {
-    _winLoopbackId = dev.deviceId;
-    const name = dev.label.split('(')[0].trim();
-    document.getElementById('audio-btn').style.display = 'block';
-    document.getElementById('status').innerHTML =
-      '<span class="dot yellow"></span>Sin audio — encontrado <b>' + name + '</b> → haz clic en el botón';
-  } else {
-    document.getElementById('audio-btn').style.display = 'block';
-  }
+  document.getElementById('audio-btn').style.display = 'block';
+  document.getElementById('status').innerHTML =
+    '<span class="dot yellow"></span>Sin audio — haz clic en el botón y selecciona <b>Monitor of Built-in Audio</b>';
 }
 
 async function tryWindowsLoopback(surface) {
@@ -554,6 +552,15 @@ async function addAudio() {
   btn.disabled = true;
   btn.textContent = 'Seleccionando audio…';
   try {
+    // Abort if no loopback device detected — do not fall back to mic (causes feedback)
+    if (!_winLoopbackId) {
+      btn.textContent = '&#127925; Agregar audio del sistema';
+      btn.disabled = false;
+      document.getElementById('status').innerHTML =
+        '<span class="dot red"></span>No se detectó dispositivo de audio del sistema — ' +
+        'reinicia y activa <b>Compartir audio del sistema</b> en el selector';
+      return;
+    }
     const audioConstraints = {
       echoCancellation: false,
       noiseSuppression: false,
@@ -561,7 +568,7 @@ async function addAudio() {
       sampleRate: 48000,
       channelCount: 2
     };
-    if (_winLoopbackId) audioConstraints.deviceId = { exact: _winLoopbackId };
+    audioConstraints.deviceId = { exact: _winLoopbackId };
     const audioStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
     const audioTrack = audioStream.getAudioTracks()[0];
     audioTrack.contentHint = 'music';
@@ -577,6 +584,7 @@ async function addAudio() {
 
     stream.addTrack(audioTrack);
     btn.style.display = 'none';
+    document.getElementById('mic-btn').style.display = 'block';
     document.getElementById('status').innerHTML = '<span class="dot green"></span>Transmitiendo con audio';
   } catch(e) {
     btn.textContent = '&#127925; Agregar audio del sistema';
@@ -585,11 +593,42 @@ async function addAudio() {
   }
 }
 
+async function toggleMic() {
+  const btn = document.getElementById('mic-btn');
+  if (!micTrack) {
+    try {
+      btn.disabled = true;
+      const micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 48000 }
+      });
+      micTrack = micStream.getAudioTracks()[0];
+      if (pc) pc.addTrack(micTrack, stream);
+      btn.style.background = '#1b3a1b'; btn.style.borderColor = '#2e6b2e'; btn.style.color = '#6abf6a';
+      btn.textContent = '&#127908; Micrófono: ON';
+    } catch(e) {
+      document.getElementById('status').innerHTML = '<span class="dot red"></span>Micrófono no disponible: ' + e.message;
+    } finally { btn.disabled = false; }
+  } else {
+    micTrack.enabled = !micTrack.enabled;
+    const on = micTrack.enabled;
+    btn.style.background = on ? '#1b3a1b' : '#1a1a1a';
+    btn.style.borderColor = on ? '#2e6b2e' : '#444';
+    btn.style.color = on ? '#6abf6a' : '#888';
+    btn.textContent = on ? '&#127908; Micrófono: ON' : '&#127908; Micrófono: OFF';
+  }
+}
+
 function stopCast() {
   stream?.getTracks().forEach(t => t.stop());
+  micTrack?.stop(); micTrack = null;
   pc?.close(); ws?.close(); resetBtn();
   _winLoopbackId = null;
   document.getElementById('audio-btn').style.display = 'none';
+  document.getElementById('mic-btn').style.display = 'none';
+  document.getElementById('mic-btn').style.background = '#1a1a1a';
+  document.getElementById('mic-btn').style.borderColor = '#444';
+  document.getElementById('mic-btn').style.color = '#888';
+  document.getElementById('mic-btn').textContent = '&#127908; Micrófono: OFF';
   document.getElementById('win-audio-guide').style.display = 'none';
   document.getElementById('status').innerHTML = '<span class="dot red"></span>Transmisión terminada';
 }
