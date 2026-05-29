@@ -1,6 +1,8 @@
 package dev.firecast.castv2
 
 import android.content.Context
+import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import org.bouncycastle.asn1.DEROctetString
 import org.bouncycastle.asn1.x500.X500Name
@@ -55,6 +57,11 @@ object CertUtils {
     var serverCert: X509Certificate? = null; private set
     var privateKey: PrivateKey?      = null; private set
 
+    /** mDNS hostname without .local, e.g. "firelink-sala" */
+    var hostname:   String = "firelink"; private set
+    /** Human-readable device name for display, e.g. "Sala" */
+    var humanName:  String = "Fire TV";  private set
+
     private var caKeyPair:     KeyPair? = null
     private var _sslContext:   SSLContext? = null
 
@@ -66,8 +73,13 @@ object CertUtils {
      * automatically if the device IP has changed since last run.
      */
     fun init(context: Context) {
-        val currentIp = localIp()
-        val ksFile    = File(context.filesDir, KS_FILE)
+        val currentIp       = localIp()
+        val currentHostname = deviceHostname(currentIp)
+        val currentFqdn     = "$currentHostname.local"
+        hostname  = currentHostname
+        humanName = Settings.Global.getString(context.contentResolver, "device_name")
+                    ?: Build.MODEL ?: "Fire TV"
+        val ksFile = File(context.filesDir, KS_FILE)
 
         var ks         = KeyStore.getInstance("PKCS12").apply { load(null, KS_PASS) }
         var needsCa    = true
@@ -88,19 +100,21 @@ object CertUtils {
                     Log.i(TAG, "CA loaded (expires ${caCert!!.notAfter})")
                 }
 
-                // Load server cert — only reuse if IP matches
+                // Load server cert — only reuse if IP and hostname both match
                 if (!needsCa) {
                     val srvEntry = ks.getEntry(SERVER_ALIAS, KeyStore.PasswordProtection(KS_PASS))
                             as? KeyStore.PrivateKeyEntry
                     if (srvEntry != null) {
-                        val certIp = ipFromCert(srvEntry.certificate as X509Certificate)
-                        if (certIp == currentIp) {
+                        val cert     = srvEntry.certificate as X509Certificate
+                        val certIp   = ipFromCert(cert)
+                        val certFqdn = hostFromCert(cert)
+                        if (certIp == currentIp && certFqdn == currentFqdn) {
                             privateKey  = srvEntry.privateKey
-                            serverCert  = srvEntry.certificate as X509Certificate
+                            serverCert  = cert
                             needsServer = false
-                            Log.i(TAG, "Server cert loaded for $currentIp")
+                            Log.i(TAG, "Server cert loaded for $currentIp / $currentFqdn")
                         } else {
-                            Log.i(TAG, "IP changed ($certIp → $currentIp), regenerating server cert")
+                            Log.i(TAG, "Cert mismatch (ip: $certIp→$currentIp, host: $certFqdn→$currentFqdn), regenerating")
                         }
                     }
                 }
@@ -123,12 +137,12 @@ object CertUtils {
 
         if (needsServer) {
             val kp   = genRsaKeyPair()
-            val cert = buildServerCert(kp, currentIp, caKeyPair!!, caCert!!)
+            val cert = buildServerCert(kp, currentIp, currentFqdn, caKeyPair!!, caCert!!)
             privateKey  = kp.private
             serverCert  = cert
             // Chain: [server, CA] so browsers receive the full chain during TLS
             ks.setKeyEntry(SERVER_ALIAS, kp.private, KS_PASS, arrayOf(cert, caCert))
-            Log.i(TAG, "New server cert generated for $currentIp")
+            Log.i(TAG, "New server cert generated for $currentIp / $currentFqdn")
         }
 
         ksFile.outputStream().use { ks.store(it, KS_PASS) }
@@ -225,7 +239,7 @@ object CertUtils {
     }
 
     private fun buildServerCert(
-        kp: KeyPair, ip: String,
+        kp: KeyPair, ip: String, fqdn: String,
         caKp: KeyPair, caCert: X509Certificate,
     ): X509Certificate {
         val subject  = X500Name("CN=FireLink Server,O=FireLink")
@@ -241,7 +255,10 @@ object CertUtils {
             .addExtension(Extension.extendedKeyUsage, false,
                 ExtendedKeyUsage(KeyPurposeId.id_kp_serverAuth))
             .addExtension(Extension.subjectAlternativeName, false,
-                GeneralNames(GeneralName(GeneralName.iPAddress, DEROctetString(ipBytes))))
+                GeneralNames(arrayOf(
+                    GeneralName(GeneralName.iPAddress, DEROctetString(ipBytes)),
+                    GeneralName(GeneralName.dNSName, fqdn),
+                )))
             .build(JcaContentSignerBuilder("SHA256WithRSA").build(caKp.private))
             .let { JcaX509CertificateConverter().getCertificate(it) }
     }
@@ -293,6 +310,16 @@ object CertUtils {
             ?.firstOrNull { (it as List<*>)[0] == 7 }
             ?.let { (it as List<*>)[1] as? String }
     } catch (e: Exception) { null }
+
+    /** Read the first dNSName SAN from a cert, or null if absent. */
+    private fun hostFromCert(cert: X509Certificate): String? = try {
+        cert.subjectAlternativeNames
+            ?.firstOrNull { (it as List<*>)[0] == 2 }
+            ?.let { (it as List<*>)[1] as? String }
+    } catch (e: Exception) { null }
+
+    /** "192.168.50.11" → "link-11" */
+    fun deviceHostname(ip: String): String = "link-${ip.substringAfterLast('.', "0")}"
 
     fun localIp(): String = try {
         java.net.NetworkInterface.getNetworkInterfaces().toList()

@@ -14,6 +14,10 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -34,16 +38,18 @@ class MainActivity : AppCompatActivity() {
     private val dialServer       = lazy { DialServer(8008, deviceId, friendlyName) }
     private val castServer       = lazy { CastV2Server(9009) }
     private val ssdpServer       = lazy { SsdpServer(this, deviceId, DialServer.getLocalIp(), 8008) }
-    private val webServer       = lazy { WebServer(8080) }
-    private val signalingServer = lazy { SignalingServer(8081) }
+    private val mdnsLocalServer  = lazy { MdnsLocalServer(this, CertUtils.localIp(), CertUtils.hostname) }
+    private val webServer        = lazy { WebServer(8080) }
+    private val signalingServer  = lazy { SignalingServer(8081) }
     private val certFile  by lazy { java.io.File(CertUtils.certDir(this), "cert.pem") }
     private val keyFile   by lazy { java.io.File(CertUtils.certDir(this), "key.pem") }
     private val hasMkcert by lazy { certFile.exists() && keyFile.exists() }
 
     private val controllerServer by lazy {
         ControllerServer(8443,
-            certFile = if (hasMkcert) certFile else null,
-            keyFile  = if (hasMkcert) keyFile  else null,
+            certFile     = if (hasMkcert) certFile else null,
+            keyFile      = if (hasMkcert) keyFile  else null,
+            friendlyName = CertUtils.humanName,
         )
     }
 
@@ -63,9 +69,16 @@ class MainActivity : AppCompatActivity() {
         statusReceiver  = findViewById(R.id.status_receiver)
         val caHint: TextView = findViewById(R.id.ca_hint)
 
-        val localIp = CertUtils.localIp()
-        urlText.text = "https://$localIp:8443"
-        caHint.text  = "🔑  Primera vez: instala el certificado CA desde http://$localIp:8080/ca.crt"
+        val localIp    = CertUtils.localIp()
+        val primaryUrl = "https://${CertUtils.hostname}.local:8443"
+        val secondary  = "\nhttps://$localIp:8443"
+        urlText.text   = SpannableStringBuilder(primaryUrl).apply {
+            val start = length
+            append(secondary)
+            setSpan(RelativeSizeSpan(0.5f),              start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            setSpan(ForegroundColorSpan(0xFF555555.toInt()), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        caHint.text  = "🔑  Sin advertencia: instala la CA desde http://$localIp:8080/ca.crt"
 
         if (hasMkcert) {
             // Cert verified by mkcert — no browser warning
@@ -157,9 +170,12 @@ class MainActivity : AppCompatActivity() {
         // ── HTTP server (receiver.html → WebView) ─────────────────
         webServer.value.start()
 
-        // ── mDNS ──────────────────────────────────────────────────
+        // ── mDNS (Cast discovery) ──────────────────────────────────
         discovery.value.onRegistered = { _ -> }
         discovery.value.start(deviceId, friendlyName, 9009)
+
+        // ── mDNS (firelink.local A record) ────────────────────────
+        mdnsLocalServer.value.start()
 
         // ── DIAL ──────────────────────────────────────────────────
         dialServer.value.start()
@@ -210,6 +226,7 @@ class MainActivity : AppCompatActivity() {
         runCatching { dialServer.value.stop() }
         castServer.value.stop()
         runCatching { ssdpServer.value.stop() }
+        runCatching { mdnsLocalServer.value.stop() }
         runCatching { webServer.value.stop() }
         signalingServer.value.stop()
         controllerServer.stop()

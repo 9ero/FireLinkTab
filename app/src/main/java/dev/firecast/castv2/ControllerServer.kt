@@ -20,6 +20,7 @@ class ControllerServer(
     private val port: Int = 8443,
     private val certFile: java.io.File? = null,
     private val keyFile: java.io.File? = null,
+    private val friendlyName: String = "Fire TV",
 ) {
 
     private var running = false
@@ -118,7 +119,7 @@ class ControllerServer(
             return
         }
 
-        val body = CONTROLLER_HTML.toByteArray(Charsets.UTF_8)
+        val body = CONTROLLER_HTML.replace("{{DEVICE_NAME}}", friendlyName).toByteArray(Charsets.UTF_8)
         out.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n" +
             "Content-Length: ${body.size}\r\nConnection: close\r\n\r\n").toByteArray())
         out.write(body); out.flush()
@@ -199,7 +200,7 @@ class ControllerServer(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FireLink — Transmite al Fire TV</title>
+<title>FireLink — {{DEVICE_NAME}}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0a0a0a;color:#f1f1f1;
@@ -211,7 +212,9 @@ h1{font-size:clamp(2rem,6vw,3.2rem);font-weight:800;letter-spacing:-.5px;
    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
    background-clip:text;line-height:1.1;margin-top:12px}
 .tagline{font-size:.85rem;color:#444;letter-spacing:.12em;text-transform:uppercase;
-         margin-top:6px;margin-bottom:32px}
+         margin-top:6px;margin-bottom:8px}
+.device-tag{font-size:1rem;color:#ff8c00;font-weight:600;letter-spacing:.04em;
+            margin-bottom:28px}
 .card{background:#161616;border:1px solid #252525;border-radius:14px;
       padding:24px 28px;max-width:480px;width:100%;text-align:center;margin-bottom:16px}
 /* ── Cast card ── */
@@ -255,6 +258,7 @@ summary:hover{color:#555}
 <body>
 <h1>FireLink</h1>
 <p class="tagline">Transmite cualquier app al Fire TV</p>
+<p class="device-tag">&#128250;&ensp;{{DEVICE_NAME}}</p>
 
 <!-- ── Mobile warning ── -->
 <div class="warn-mobile" id="warn-mobile" style="display:none;max-width:480px;width:100%;margin-bottom:16px">
